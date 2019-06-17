@@ -13,6 +13,8 @@ server_ehlo = {
 }
 
 player_database = {
+    'alice': {'id': 123, 'password': "alice"},
+    'bob': {'id': 234, 'password': "bob"},
     'ham5ter': {'id': 1337, 'password': "notsecure"},
     'testuser': {'id': 42, 'password': "notsecure"},
     'nac9tar': {'id': 364, 'password': "notsecure"}
@@ -106,6 +108,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 break
             if data[0:4].hex() not in ['13000000','18000000','21020000','0f000000']:
                 make_bytes_beautifull(data, color_code='\033[91m')
+                print(data.hex())
             else:
                 make_bytes_beautifull(data, color_code='\033[92m')
             if data[0:4] == bytes.fromhex('13000000'): # NET: ULIN
@@ -189,3 +192,8 @@ if __name__ == "__main__":
             print(len(requests))
             if len(requests) > 0:
                 print(random.choice(list(requests)))
+        elif comand.startswith('mb '):
+            make_bytes_beautifull(bytes.fromhex(comand.split(' ')[1]))
+        elif comand.startswith('send '):
+            comand, recipient, data = comand.split(' ')
+            requests[int(recipient)].request.sendall(bytes.fromhex(data))
