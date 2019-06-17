@@ -20,7 +20,7 @@
 ```
 ## "Known" **package Types**:
 
-Assuming that the first Byte is determining the Package Type, these Package Types deduce from the Dump:
+Assuming that the first 4 Bytes are determining the Package Type, these Package Types can be deduced from the Dump:
 
 |Bytes| CAOS Comand|Sender |Type |
 |-|-|-|-|
@@ -45,7 +45,12 @@ Assuming that the first Byte is determining the Package Type, these Package Type
 |70| - |C|Packet No. 273 Maybe Live Event?|
 
 
-## Login package
+## Login request Package
+
+A Login Package is gnerated by the Client via net `NET: LINE` Command, it Contains the `UserID` and `Echo Load` (if the Player previously was logged in), the `Package Count`, as well as the `Username` and `Password` and Information on Username and Password Lenght as well as Padding.
+
+
+In this Package the Player `WizardNorn` tried to authenticate with the Password `12345678`.
 
 ### Data
 
@@ -58,22 +63,22 @@ Assuming that the first Byte is determining the Package Type, these Package Type
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 0030 |01 00 00 00|02 00 00 00|00 00 00 00|0b 00 00 00|
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-0040 |09 00 00 00|57 69 7a 61 72 64 4e 6f 72 6e|00|73
+0040 |09 00 00 00|57 69 7a 61 72 64 4e 6f 72 6e|00|31»
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-0050  68 37 38 6d 72 71 62|00|
+0050  32 33 34 35 36 37 38|00|
      +--+--+--+--+--+--+--+--+
 ```
 
-`2500000000000000000000001b00000001000a000500000000000000000000000100000002000000000000000b0000000900000057697a6172644e6f726e007300506837386d72716200`
+`2500000000000000000000001b00000001000a000500000000000000000000000100000002000000000000000b0000000900000057697a6172644e6f726e007300313233343536373800`
 
 ### Frame
 
 ```
       0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-0000 | Pkg. Type |   Echo Load (empty)   |  User ID  |
+0000 | Msg. Type |   Echo Load (empty)   |  User ID  |
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
-0020 |   ?????   | Pkg.Count |      Zero Padding     |
+0020 |   ?????   | Msg.Count |      Zero Padding     |
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 0030 |   ?????   |   ?????   |   ?????   |len(user)+1|
      +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -84,6 +89,12 @@ Assuming that the first Byte is determining the Package Type, these Package Type
 ```
 
 ## Login Response (Success)
+
+This is a succesfull response to the Login Message sent previously, it Contains Information on the `Hostname or IP Address`, a `Friendly Name` as well as the `Port` of the Game servers (multiple Server can be returned).
+These Information are then Stored in the `server.cfg` in the Game/Engine directory.
+This mechanism can be used to i.E. aid the Migration to a new server and/or update the Port, or add another Server to the Configuration.
+
+The Server Adress returned in this Example is `localhost` the Port is `1337` and the Friendly Name is `mjolnir`.
 
 ### Data
 
@@ -125,13 +136,53 @@ Assuming that the first Byte is determining the Package Type, these Package Type
 ```
 
 
-
 ## Localhost Server Config `server.cfg`
 
 ```
-"Server 0 FriendlyName" Heart
-"Server 0 Host" 127.0.0.1
+"Server 0 FriendlyName" mjolnir
+"Server 0 Host" localhost
 "Server 0 ID" 1
 "Server 0 Port" 1337
 "Server Count" 1
+```
+
+## Login Response (Failed)
+
+A "failed" Login Response was not recorded, but via Trial and Error we found out that when, answering a Login Request with an "empty" 28 Byte Payload, the Client handles it like a failed Login, and does not crash.
+
+> We should test if we can add Server Configuration to a failed login response as well.
+>
+
+### Data
+
+```
+     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 00 |0a 00 00 00|00 00 00 00 00 00 00 00|00 00 00 00|
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 01 |00 00 00 00|05 00 00 00|00 00 00 00 00 00 00 00|
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 02  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00»
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 03  00 00 00 00 00 00 00 00 00 00 00 00|
+    +--+--+--+--+--+--+--+--+--+--+--+--+
+
+```
+
+`0a0000000000000000000000000000000000000005000000000000000000000000000000000000000000000000000000000000000000000000000000`
+
+### Frame
+
+```
+     0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 00 | Pkg. Type |       Echo Load       |  User ID  |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 01 |   ?????   | Pkg.Count |      Zero Padding     |
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 02 |00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00»
+    +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+ 03  00 00 00 00 00 00 00 00 00 00 00 00|
+    +--+--+--+--+--+--+--+--+--+--+--+--+
+
 ```
