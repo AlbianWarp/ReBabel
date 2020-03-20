@@ -37,6 +37,87 @@ def make_bytes_beautifull(payload, color_code="\033[96m"):
     print("\033[00m")
 
 
+class package_data(bytes):
+    @property
+    def package_count(self):
+        return self.get_int(20)
+
+    def get_int(self, position, length=4):
+        return int.from_bytes(self[position : position + length], byteorder="little")
+
+    def get_string(self, position, length):
+        return self[position : position + length].decode("latin-1")
+
+    @staticmethod
+    def int_to_bytes(integer, length=4):
+        return integer.to_bytes(length, byteorder="little")
+
+    @staticmethod
+    def str_to_bytes(string):
+        return string.encode("latin-1")
+
+    @staticmethod
+    def zeros(length=4):
+        return int(0).to_bytes(length, byteorder="little")
+
+
+class package_line(package_data):
+    @property
+    def username(self):
+        return self.get_string(52, self.get_int(44) - 1)
+
+    @property
+    def password(self):
+        return self.get_string(52 + self.get_int(44), self.get_int(48) - 1)
+
+    @property
+    def user_id(self):
+        if (
+            self.username in player_database
+            and player_database[self.username]["password"] == self.password
+        ):
+            return player_database[self.username]["id"]
+        return None
+
+
+class line_response(package_data):
+    def __init__(self, pl, server_ehlo=server_ehlo, echo_load=echo_load):
+        if pl.user_id is None:
+            self.data = (
+                self.int_to_bytes(10)
+                + self.zeros(16)
+                + self.int_to_bytes(pl.package_count + 1)  # Package Count
+                + self.zeros(36)
+            )
+        else:
+            self.data = (
+                # header
+                self.int_to_bytes(10)  # package type (0a000000)
+                + bytes.fromhex(echo_load)  # ECHO
+                + self.int_to_bytes(pl.user_id)  # User ID
+                + bytes.fromhex("01000a00")  # Unknown Data
+                + self.int_to_bytes(pl.package_count + 1)  # Package Count
+                + self.zeros(8)
+                # end Header / start payload
+                + self.zeros()
+                + self.int_to_bytes(1)
+                + self.zeros()
+                + self.int_to_bytes(
+                    len(server_ehlo["host"]) + len(server_ehlo["name"]) + 22
+                )  # payload Length maybe?
+                + self.int_to_bytes(1)
+                + self.int_to_bytes(1)
+                + self.int_to_bytes(1)
+                + self.int_to_bytes(server_ehlo["port"])
+                + self.int_to_bytes(1)
+                + self.str_to_bytes(server_ehlo["host"])
+                + self.zeros(1)
+                + self.str_to_bytes(server_ehlo["name"])
+                + self.zeros(1)
+            )
+        self.user_id = pl.user_id
+
+
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     """
     The RequestHandler class for our server.
@@ -49,71 +130,16 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         data = self.request.recv(1024)
         make_bytes_beautifull(data, color_code="\033[92m")
         if data[0:4] == bytes.fromhex("25000000"):
-            self.package_count = int.from_bytes(data[20:24], byteorder="little")
-            username_len = int.from_bytes(data[44:47], byteorder="little") - 1
-            password_len = int.from_bytes(data[48:52], byteorder="little") - 1
-            self.username = data[52 : 52 + username_len].decode("latin-1")
-            password = data[
-                52 + username_len + 1 : 52 + username_len + 1 + password_len
-            ].decode("latin-1")
-            if (
-                self.username in player_database
-                and player_database[self.username]["password"] == password
-            ):
-                self.user_id = player_database[self.username]["id"]
-                package_type = "0a000000"
-                user_id = (
-                    player_database[self.username]["id"]
-                    .to_bytes(4, byteorder="little")
-                    .hex()
-                )
-                another_value = "01000a00"
-                package_count_hex = self.package_count.to_bytes(
-                    4, byteorder="little"
-                ).hex()
-                zeros = "0000000000000000"
-                header = f"{package_type}{echo_load}{user_id}{another_value}{package_count_hex}{zeros}"
-                data = (
-                    "00000000"
-                    + "01000000"
-                    + "00000000"
-                    + f"{int(len(server_ehlo['host']) + len(server_ehlo['name'])+22).to_bytes(4, byteorder='little').hex()}"
-                    + "01000000"
-                    + "01000000"
-                    + "01000000"
-                    + f"{server_ehlo['port'].to_bytes(4, byteorder='little').hex()}"
-                    + "01000000"
-                    + f"{server_ehlo['host'].encode('latin-1').hex()}"
-                    + "00"
-                    + f"{server_ehlo['name'].encode('latin-1').hex()}"
-                    + "00"
-                )
-                reply = header + data
-                make_bytes_beautifull(bytes.fromhex(reply))
-                self.request.sendall(bytes.fromhex(reply))
-                print(f"{self.username} has joined!")
+            p = package_line(data)
+            r = line_response(p)
+            make_bytes_beautifull(r)
+            self.request.sendall(r.data)
+            self.user_id = r.user_id
+            if self.user_id is not None:
+                print(f"{p.username} has joined!")
                 self.session_run = True
-            else:  # This package forces the Client to Disconnect, This is used as we don't have a working
-                # "failed authentication" and other responses.
-                package_type = "0a000000"
-                user_id = "00000000"
-                another_value = "00000000"
-                package_count_hex = self.package_count.to_bytes(
-                    4, byteorder="little"
-                ).hex()
-                zeros = "0000000000000000"
-                data = "00000000000000000000000000000000000000000000000000000000"
-                reply = (
-                    package_type
-                    + "0000000000000000"
-                    + user_id
-                    + another_value
-                    + package_count_hex
-                    + zeros
-                    + data
-                )
-                make_bytes_beautifull(bytes.fromhex(reply))
-                self.request.sendall(bytes.fromhex(reply))
+            else:
+                print(f"{p.username} LOGIN, failed")
                 return
         else:
             return
@@ -124,10 +150,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             try:
                 data = self.request.recv(1024)
             except ConnectionResetError as exception:
-                print(f"{self.username} BREAK, {exception}")
+                print(f"{self.user_id} BREAK, {exception}")
                 break
             if not data:
-                print(f"{self.username} BREAK, NODATA")
+                print(f"{self.user_id} BREAK, NODATA")
                 break
             if data[0:4].hex() not in ["13000000", "18000000", "21020000", "0f000000"]:
                 make_bytes_beautifull(data, color_code="\033[91m")
