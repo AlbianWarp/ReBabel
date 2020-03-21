@@ -1,5 +1,6 @@
 import random
 import socketserver
+from socket import SHUT_RDWR
 import threading
 import time
 from threading import Thread
@@ -132,7 +133,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         if data[0:4] == bytes.fromhex("25000000"):
             p = package_line(data)
             r = line_response(p)
-            make_bytes_beautifull(r)
+            make_bytes_beautifull(r.data)
             self.request.sendall(r.data)
             self.user_id = r.user_id
             if self.user_id is not None:
@@ -218,13 +219,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
 
-
-def broadcast(msg, prefix=""):  # prefix is for name identification.
-    """Broadcasts a message to all the clients."""
-    for request in requests:
-        request.sendall(msg)
-
-
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
@@ -233,7 +227,7 @@ if __name__ == "__main__":
     # Port 0 means to select an arbitrary unused port
     HOST, PORT = "0.0.0.0", 1337
     BUFSIZ = 1024
-
+    ThreadedTCPServer.allow_reuse_address = True
     server = ThreadedTCPServer((HOST, PORT), ThreadedTCPRequestHandler)
     ip, port = server.server_address
 
@@ -246,16 +240,38 @@ if __name__ == "__main__":
     print("Server loop running in thread:", server_thread.name)
     print("IP: {} Port: {}".format(str(ip), str(port)))
     print("Waiting for connection...")
-    while True:
-        comand = input("#")
-        if comand == "ls":
-            print(requests)
-        elif comand == "rr":
-            print(len(requests))
-            if len(requests) > 0:
-                print(random.choice(list(requests)))
-        elif comand.startswith("mb "):
-            make_bytes_beautifull(bytes.fromhex(comand.split(" ")[1]))
-        elif comand.startswith("send "):
-            comand, recipient, data = comand.split(" ")
-            requests[int(recipient)].request.sendall(bytes.fromhex(data))
+    try:
+        while True:
+            comand = input("#")
+            if comand == "ls":
+                print(requests)
+            elif comand == "rr":
+                print(len(requests))
+                if len(requests) > 0:
+                    print(random.choice(list(requests)))
+            elif comand.startswith("mb "):
+                make_bytes_beautifull(bytes.fromhex(comand.split(" ")[1]))
+            elif comand.startswith("send "):
+                comand, recipient, data = comand.split(" ")
+                requests[int(recipient)].request.sendall(bytes.fromhex(data))
+            elif comand.startswith("quit"):
+                tmp = []
+                for foo in requests:
+                    tmp.append(foo)
+                for foo in tmp:
+                    print(f"{foo} is still connected ")
+                    requests[foo].request.shutdown(SHUT_RDWR)
+                    requests[foo].request.close()
+                server.shutdown()
+                server.server_close()
+                break
+    except KeyboardInterrupt as exception:
+        tmp = []
+        for foo in requests:
+            tmp.append(foo)
+        for foo in tmp:
+            print(f"{foo} is still connected ")
+            requests[foo].request.shutdown(SHUT_RDWR)
+            requests[foo].request.close()
+        server.shutdown()
+        server.server_close()
