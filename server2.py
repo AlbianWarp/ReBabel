@@ -143,10 +143,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 print(f"{p.username} LOGIN, failed")
                 return
         else:
+            print(f"Whatever that was, It was not a 'NET: LINE' Request! Bye Bye! ;)")
             return
         requests[self.user_id] = self
-        cur_thread = threading.current_thread()
-        threads[self.user_id] = cur_thread
+        threads[self.user_id] = threading.current_thread()
         while self.session_run:
             try:
                 data = self.request.recv(1024)
@@ -207,13 +207,18 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
                 user_id = int.from_bytes(data[12:16], byteorder="little")
                 user_id_hex = data[12:16].hex()
+                user_hid = int.from_bytes(data[16:20], byteorder="little")
                 username = None
                 for name, user in player_database.items():
                     if user["id"] == user_id:
                         username = name
                         username_hex = username.encode("latin-1").hex()
+                        username_len_hex = len(username).to_bytes(4, byteorder='little').hex()
+                        print(f"{username} {username_hex} {username_len_hex} {user_id}+{user_hid}")
                         break
-                reply = f"0f000000{echo_load}{user_id_hex}0b000000{package_count_hex}290000000000000029000000{user_id_hex}0b00cccc05000000050000000700000048617070794d65696c69{username_hex}"
+                payld_len = 34 + len(username)
+                reply = f"0f000000{echo_load}{user_id_hex}{data[16:20].hex()}{package_count_hex}{payld_len.to_bytes(4,byteorder='little').hex()}00000000{payld_len.to_bytes(4,byteorder='little').hex()}{user_id_hex}0b00cccc0500000005000000{ username_len_hex }48617070794d65696c69{username_hex}"
+                print(reply)
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
         del requests[self.user_id]
