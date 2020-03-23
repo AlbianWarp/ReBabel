@@ -87,7 +87,7 @@ class line_response(package_data):
             self.data = (
                 self.int_to_bytes(10)
                 + self.zeros(16)
-                + self.int_to_bytes(pl.package_count + 1)  # Package Count
+                + self.int_to_bytes(pl.package_count)  # Package Count
                 + self.zeros(36)
             )
         else:
@@ -97,7 +97,7 @@ class line_response(package_data):
                 + bytes.fromhex(echo_load)  # ECHO
                 + self.int_to_bytes(pl.user_id)  # User ID
                 + bytes.fromhex("01000a00")  # Unknown Data
-                + self.int_to_bytes(pl.package_count + 1)  # Package Count
+                + self.int_to_bytes(pl.package_count)  # Package Count
                 + self.zeros(8)
                 # end Header / start payload
                 + self.zeros()
@@ -131,16 +131,12 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         data = self.request.recv(1024)
         make_bytes_beautifull(data, color_code="\033[92m")
         if data[0:4] == bytes.fromhex("25000000"):
-            p = package_line(data)
-            r = line_response(p)
-            make_bytes_beautifull(r.data)
-            self.request.sendall(r.data)
-            self.user_id = r.user_id
+            reply, self.user_id = net_line_reply_package(data)
+            make_bytes_beautifull(reply)
+            self.request.sendall(reply)
             if self.user_id is not None:
-                print(f"{p.username} has joined!")
                 self.session_run = True
             else:
-                print(f"{p.username} LOGIN, failed")
                 return
         else:
             print(f"Whatever that was, It was not a 'NET: LINE' Request! Bye Bye! ;)")
@@ -156,73 +152,157 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if not data:
                 print(f"{self.user_id} BREAK, NODATA")
                 break
-            if data[0:4].hex() not in ["13000000", "18000000", "21020000", "0f000000"]:
+            if data[0:4].hex() not in ["13000000", "18000000", "21020000", "0f000000", "10000000"]:
                 make_bytes_beautifull(data, color_code="\033[91m")
                 print(data.hex())
             else:
                 make_bytes_beautifull(data, color_code="\033[92m")
             if data[0:4] == bytes.fromhex("13000000"):  # NET: ULIN
-                requested_user_id = int.from_bytes(data[12:15], byteorder="little")
-                package_count = int.from_bytes(data[20:24], byteorder="little")
-                package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
-                if requested_user_id in requests:
-                    response = bytes.fromhex(
-                        f"13000000{echo_load}0000000000000000{package_count_hex}000000000a000000"
-                    )
-                else:
-                    response = bytes.fromhex(
-                        f"1300000000000000000000000000000000000000{package_count_hex}0000000000000000"
-                    )
-                make_bytes_beautifull(response)
-                self.request.sendall(response)
+                reply = net_ulin_reply_package(data)
+                make_bytes_beautifull(reply)
+                self.request.sendall(reply)
             elif data[0:4] == bytes.fromhex("18000000"):  # NET: STAT
-                package_count = int.from_bytes(data[20:24], byteorder="little")
-                bytes_received = (12345).to_bytes(4, byteorder="little").hex()
-                bytes_sent = (54321).to_bytes(4, byteorder="little").hex()
-                player_online = (len(requests)).to_bytes(4, byteorder="little").hex()
-                mil_seconds_online = (10602856).to_bytes(4, byteorder="little").hex()
-                response = bytes.fromhex(
-                    "1800000000000000000000000000000000000000"
-                    + package_count.to_bytes(4, byteorder="little").hex()
-                    + "00000000 00000000"
-                    + mil_seconds_online
-                    + player_online
-                    + bytes_sent
-                    + bytes_received
-                )
-                make_bytes_beautifull(response)
-                self.request.sendall(response)
+                reply = net_stat_reply_package(data)
+                make_bytes_beautifull(reply)
+                self.request.sendall(reply)
             elif data[0:4] == bytes.fromhex("21020000"):  # NET: RUSO
-                package_count = int.from_bytes(data[20:24], byteorder="little")
-                package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
-                random_user_id = random.choice(list(requests))
-                random_user_id_hex = random_user_id.to_bytes(
-                    4, byteorder="little"
-                ).hex()
-                reply = f"21020000{echo_load}{random_user_id_hex}01000a00{package_count_hex}0000000001000000"
+                reply = net_ruso_reply_package(data)
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
             elif data[0:4] == bytes.fromhex("0f000000"):  # NET: UNIK
-                package_count = int.from_bytes(data[20:24], byteorder="little")
-                package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
-                user_id = int.from_bytes(data[12:16], byteorder="little")
-                user_id_hex = data[12:16].hex()
-                user_hid = int.from_bytes(data[16:20], byteorder="little")
-                username = None
-                for name, user in player_database.items():
-                    if user["id"] == user_id:
-                        username = name
-                        username_hex = username.encode("latin-1").hex()
-                        username_len_hex = len(username).to_bytes(4, byteorder='little').hex()
-                        print(f"{username} {username_hex} {username_len_hex} {user_id}+{user_hid}")
-                        break
-                payld_len = 34 + len(username)
-                reply = f"0f000000{echo_load}{user_id_hex}{data[16:20].hex()}{package_count_hex}{payld_len.to_bytes(4,byteorder='little').hex()}00000000{payld_len.to_bytes(4,byteorder='little').hex()}{user_id_hex}0b00cccc0500000005000000{ username_len_hex }48617070794d65696c69{username_hex}"
-                print(reply)
+                reply = net_unik_reply_package(data)
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
+            elif data[0:4] == bytes.fromhex("10000000"):
+                user_id = int.from_bytes(data[12:16], byteorder="little")
+                user_hid = int.from_bytes(data[16:18], byteorder="little")
+                reply = user_status_package(user_id=user_id, user_hid=user_hid)
+                make_bytes_beautifull(bytes.fromhex(reply))
+                self.request.sendall(bytes.fromhex(reply))
+
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
+
+def net_line_reply_package(line_request_package):
+    package_count = int.from_bytes(line_request_package[20:24], byteorder="little")
+    print(f"{package_count}")
+    username_len = int.from_bytes(line_request_package[44 : 48], byteorder="little")
+    username = line_request_package[52: 52 + username_len - 1].decode("latin-1")
+    print(f"{username_len} {username}")
+    password_len = int.from_bytes(line_request_package[48:52], byteorder='little')
+    password = line_request_package[52 + username_len: 52 + username_len + password_len -1 ].decode("latin-1")
+    print(f"{password_len} {password}")
+    user_id = None
+    if username in player_database and player_database[username]['password'] == password:
+        user_id = player_database[username]['id']
+    user_hid = 1
+    print(f"{user_id}+{user_hid}")
+    if user_id is None:
+        print(f"{username} LOGIN, failed")
+        return bytes.fromhex(f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000")
+    print(f"{username} has joined!")
+    return bytes.fromhex(
+        f"0a000000{echo_load}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count.to_bytes(4, byteorder='little').hex()}0000000000000000"
+        + f"00000000"
+        + f"01000000"
+        + f"00000000"
+        + (len(server_ehlo['host']) + len(server_ehlo['name']) + 22).to_bytes(4,byteorder='little').hex()
+        + f"01000000"
+        + f"01000000"
+        + f"01000000"
+        + server_ehlo['port'].to_bytes(4,byteorder='little').hex()
+        + f"01000000"
+        + server_ehlo['host'].encode('latin-1').hex()
+        + f"00"
+        + server_ehlo['name'].encode('latin-1').hex()
+        + f"00"
+    ), user_id
+
+def net_ulin_reply_package(ulin_request_package):
+    requested_user_id = int.from_bytes(ulin_request_package[12:15], byteorder="little")
+    package_count = int.from_bytes(ulin_request_package[20:24], byteorder="little")
+    package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
+    if requested_user_id in requests:
+        return bytes.fromhex(
+            f"13000000{echo_load}0000000000000000{package_count_hex}000000000a000000"
+        )
+    else:
+        return bytes.fromhex(
+            f"1300000000000000000000000000000000000000{package_count_hex}0000000000000000"
+        )
+
+def net_stat_reply_package(stat_request_package):
+    """This whole thing is a mock, all the date, asside from the user_id, and Online player count, returned by this is nonsense ;)"""
+    package_count = int.from_bytes(stat_request_package[20:24], byteorder="little")
+    bytes_received = (12345).to_bytes(4, byteorder="little").hex()
+    bytes_sent = (54321).to_bytes(4, byteorder="little").hex()
+    player_online = (len(requests)).to_bytes(4, byteorder="little").hex()
+    mil_seconds_online = (10602856).to_bytes(4, byteorder="little").hex()
+    return bytes.fromhex(
+        "1800000000000000000000000000000000000000"
+        + package_count.to_bytes(4, byteorder="little").hex()
+        + "0000000000000000"
+        + mil_seconds_online
+        + player_online
+        + bytes_sent
+        + bytes_received
+    )
+
+
+def net_ruso_reply_package(ruso_request_package):
+    package_count = int.from_bytes(ruso_request_package[20:24], byteorder="little")
+    package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
+    random_user_id = random.choice(list(requests))
+    random_user_hid = 1
+    return f"21020000{echo_load}{random_user_id.to_bytes(4, byteorder='little').hex()}{random_user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count_hex}0000000001000000"
+
+
+def net_unik_reply_package(unik_request_package):
+    package_count_hex = unik_request_package[20:24].hex()
+    user_id = int.from_bytes(unik_request_package[12:16], byteorder="little")
+    user_id_hex = unik_request_package[12:16].hex()
+    user_hid = int.from_bytes(unik_request_package[16:18], byteorder="little")
+    username = None
+    for name, user in player_database.items():
+        if user["id"] == user_id:
+            username = name
+            username_hex = username.encode("latin-1").hex()
+            username_len_hex = (
+                len(username).to_bytes(4, byteorder="little").hex()
+            )
+            print(
+                f"{username} {username_hex} {username_len_hex} {user_id}+{user_hid}"
+            )
+            break
+    payld_len = 34 + len(username)
+    reply = f"0f000000{echo_load}{user_id_hex}{unik_request_package[16:18].hex()}0000{package_count_hex}{payld_len.to_bytes(4, byteorder='little').hex()}00000000{payld_len.to_bytes(4, byteorder='little').hex()}{user_id_hex}0b00cccc0500000005000000{username_len_hex}48617070794d65696c69{username_hex}"
+    print(reply)
+    return reply
+
+
+def user_status_package(user_id, user_hid=1):
+    username = None
+    for name, user in player_database.items():
+        if user["id"] == user_id:
+            username = name
+            break
+
+    if not username:
+        return None
+    print(
+        f"{username} {username.encode('latin-1').hex()} {len(username).to_bytes(4, byteorder='little').hex()} {user_id}+{user_hid}"
+    )
+    payld_len = 34 + len(username)
+    if user_id in requests:
+        reply = f"0d0000000000000000000000{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}000000000000{payld_len.to_bytes(4, byteorder='little').hex()}00000000{payld_len.to_bytes(4, byteorder='little').hex()}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}cccc0500000005000000{len(username).to_bytes(4, byteorder='little').hex()}48617070794d65696c69{username.encode('latin-1').hex()}"
+        print(f"{user_id}+{user_hid} is online")
+    else:
+        reply = f"0e0000000000000000000000{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}0a0000000000{payld_len.to_bytes(4, byteorder='little').hex()}00000000{payld_len.to_bytes(4, byteorder='little').hex()}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}cccc0500000005000000{len(username).to_bytes(4, byteorder='little').hex()}48617070794d65696c69{username.encode('latin-1').hex()}"
+        print(f"{user_id}+{user_hid} is offline")
+    print(reply)
+    make_bytes_beautifull(bytes.fromhex(reply))
+    return reply
+
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
