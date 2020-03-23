@@ -152,7 +152,13 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if not data:
                 print(f"{self.user_id} BREAK, NODATA")
                 break
-            if data[0:4].hex() not in ["13000000", "18000000", "21020000", "0f000000", "10000000"]:
+            if data[0:4].hex() not in [
+                "13000000",
+                "18000000",
+                "21020000",
+                "0f000000",
+                "10000000",
+            ]:
                 make_bytes_beautifull(data, color_code="\033[91m")
                 print(data.hex())
             else:
@@ -183,40 +189,54 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
 
+
 def net_line_reply_package(line_request_package):
     package_count = int.from_bytes(line_request_package[20:24], byteorder="little")
     print(f"{package_count}")
-    username_len = int.from_bytes(line_request_package[44 : 48], byteorder="little")
-    username = line_request_package[52: 52 + username_len - 1].decode("latin-1")
+    username_len = int.from_bytes(line_request_package[44:48], byteorder="little")
+    username = line_request_package[52 : 52 + username_len - 1].decode("latin-1")
     print(f"{username_len} {username}")
-    password_len = int.from_bytes(line_request_package[48:52], byteorder='little')
-    password = line_request_package[52 + username_len: 52 + username_len + password_len -1 ].decode("latin-1")
+    password_len = int.from_bytes(line_request_package[48:52], byteorder="little")
+    password = line_request_package[
+        52 + username_len : 52 + username_len + password_len - 1
+    ].decode("latin-1")
     print(f"{password_len} {password}")
     user_id = None
-    if username in player_database and player_database[username]['password'] == password:
-        user_id = player_database[username]['id']
+    if (
+        username in player_database
+        and player_database[username]["password"] == password
+    ):
+        user_id = player_database[username]["id"]
     user_hid = 1
     print(f"{user_id}+{user_hid}")
     if user_id is None:
         print(f"{username} LOGIN, failed")
-        return bytes.fromhex(f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000")
+        return bytes.fromhex(
+            f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000"
+        )
     print(f"{username} has joined!")
-    return bytes.fromhex(
-        f"0a000000{echo_load}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count.to_bytes(4, byteorder='little').hex()}0000000000000000"
-        + f"00000000"
-        + f"01000000"
-        + f"00000000"
-        + (len(server_ehlo['host']) + len(server_ehlo['name']) + 22).to_bytes(4,byteorder='little').hex()
-        + f"01000000"
-        + f"01000000"
-        + f"01000000"
-        + server_ehlo['port'].to_bytes(4,byteorder='little').hex()
-        + f"01000000"
-        + server_ehlo['host'].encode('latin-1').hex()
-        + f"00"
-        + server_ehlo['name'].encode('latin-1').hex()
-        + f"00"
-    ), user_id
+    return (
+        bytes.fromhex(
+            f"0a000000{echo_load}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count.to_bytes(4, byteorder='little').hex()}0000000000000000"
+            + f"00000000"
+            + f"01000000"
+            + f"00000000"
+            + (len(server_ehlo["host"]) + len(server_ehlo["name"]) + 22)
+            .to_bytes(4, byteorder="little")
+            .hex()
+            + f"01000000"
+            + f"01000000"
+            + f"01000000"
+            + server_ehlo["port"].to_bytes(4, byteorder="little").hex()
+            + f"01000000"
+            + server_ehlo["host"].encode("latin-1").hex()
+            + f"00"
+            + server_ehlo["name"].encode("latin-1").hex()
+            + f"00"
+        ),
+        user_id,
+    )
+
 
 def net_ulin_reply_package(ulin_request_package):
     requested_user_id = int.from_bytes(ulin_request_package[12:15], byteorder="little")
@@ -230,6 +250,7 @@ def net_ulin_reply_package(ulin_request_package):
         return bytes.fromhex(
             f"1300000000000000000000000000000000000000{package_count_hex}0000000000000000"
         )
+
 
 def net_stat_reply_package(stat_request_package):
     """This whole thing is a mock, all the date, asside from the user_id, and Online player count, returned by this is nonsense ;)"""
@@ -267,12 +288,8 @@ def net_unik_reply_package(unik_request_package):
         if user["id"] == user_id:
             username = name
             username_hex = username.encode("latin-1").hex()
-            username_len_hex = (
-                len(username).to_bytes(4, byteorder="little").hex()
-            )
-            print(
-                f"{username} {username_hex} {username_len_hex} {user_id}+{user_hid}"
-            )
+            username_len_hex = len(username).to_bytes(4, byteorder="little").hex()
+            print(f"{username} {username_hex} {username_len_hex} {user_id}+{user_hid}")
             break
     payld_len = 34 + len(username)
     reply = f"0f000000{echo_load}{user_id_hex}{unik_request_package[16:18].hex()}0000{package_count_hex}{payld_len.to_bytes(4, byteorder='little').hex()}00000000{payld_len.to_bytes(4, byteorder='little').hex()}{user_id_hex}0b00cccc0500000005000000{username_len_hex}48617070794d65696c69{username_hex}"
