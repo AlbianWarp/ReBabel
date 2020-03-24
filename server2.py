@@ -5,6 +5,11 @@ import threading
 import time
 from threading import Thread
 
+from prayer.prayer import Pray
+from prayer.blocks import TagBlock
+from sys import argv
+
+
 echo_load = "40524b28eb000000"
 
 server_ehlo = {"host": "192.168.0.61", "port": 1337, "name": "ThunderStorm"}
@@ -105,19 +110,126 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
             elif data[0:4] == bytes.fromhex("09000000"):  # PRAY Data :shrug:
-                print(data.hex())
                 poke_pray(data)
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
 
-def poke_pray(pray_request_package):
-    user_uid = int.from_bytes(pray_request_package[12:15], byteorder="little")
-    user_hid = int.from_bytes(pray_request_package[16:17], byteorder="little")
-    print(f" User UID:{user_uid} - {pray_request_package[12:16].hex()}")
-    print(f" User HID:{user_hid} - {pray_request_package[16:18].hex()}")
-    package_count = int.from_bytes(pray_request_package[20:24], byteorder="little")
-    print(f"{package_count} - {pray_request_package[20:24].hex()}")
 
+def poke_pray(pray_request_package,sent_by_server=False):
+    what = {
+        "tcp_pld_len": {"t": "print", "d": len(pray_request_package)},
+        "pld_len_no_header": {"t": "print", "d": len(pray_request_package[32:])},
+        "type": {"t": "raw", "d": pray_request_package[0:4]},
+        "echo_load": {"t": "raw", "d": pray_request_package[4:12]},
+        "user_id_01": {"t": "int", "d": pray_request_package[12:16]},
+        "user_hid": {"t": "int", "d": pray_request_package[16:18]},
+        "mystery_01": {"t": "raw", "d": pray_request_package[18:20]},
+        "mystery_02": {"t": "raw", "d": pray_request_package[20:24]},
+        "pld_len_01": {
+            "t": "int",
+            "d": pray_request_package[24:28],
+        },  # Always pld_len_no_header - 8
+        "mystery_03": {
+            "t": "raw",
+            "d": pray_request_package[28:32],
+        },  # The Payload len might occupy 8 Bytes ?
+        # HEADER END
+        "sender_uid": {"t": "int", "d": pray_request_package[32:36]},
+        "sender_hid": {"t": "int", "d": pray_request_package[36:38]},
+        "mystery_04": {"t": "raw", "d": pray_request_package[38:40]},
+        "pld_len_02": {"t": "int", "d": pray_request_package[44:48]},
+        "user_id_02": {"t": "int", "d": pray_request_package[48:52]},
+        "mystery_06": {
+            "t": "int",
+            "d": pray_request_package[52:56],
+        },  # SOme Length :shrug:
+        "mystery_07": {"t": "raw", "d": pray_request_package[56:60]},
+        "mystery_08": {"t": "raw", "d": pray_request_package[60:64]},
+        "mystery_09": {"t": "raw", "d": pray_request_package[64:68]},
+        "mystery_10": {"t": "raw", "d": pray_request_package[68:72]},
+        "mystery_11": {"t": "raw", "d": pray_request_package[72:76]},
+        "pray": {"t": "raw", "d": pray_request_package[76:]},
+        "pray_filename": {
+            "t": "str",
+            "d": pray_request_package[76 : 76 + 128]
+            .decode("latin-1")
+            .rstrip("\0")
+            .encode("latin-1"),
+        },
+    }
+    if sent_by_server:
+        what = {
+            "tcp_pld_len": {"t": "print", "d": len(pray_request_package)},
+            "pld_len_no_header": {"t": "print", "d": len(pray_request_package[32:])},
+            "type": {"t": "raw", "d": pray_request_package[0:4]},
+            "echo_load": {"t": "raw", "d": pray_request_package[4:12]},
+            "user_id_01": {"t": "int", "d": pray_request_package[12:16]},
+            "user_hid": {"t": "int", "d": pray_request_package[16:18]},
+            "mystery_01": {"t": "raw", "d": pray_request_package[18:20]},
+            "mystery_02": {"t": "raw", "d": pray_request_package[20:24]},
+            "pld_len_01": {
+                "t": "int",
+                "d": pray_request_package[24:28],
+            },  # Always pld_len_no_header - 8
+            "mystery_03": {
+                "t": "raw",
+                "d": pray_request_package[28:32],
+            },  # The Payload len might occupy 8 Bytes ?
+            # HEADER END
+            "sender_uid": {"t": "int", "d": pray_request_package[32:36]},
+            "sender_hid": {"t": "int", "d": pray_request_package[36:38]},
+            "mystery_04": {"t": "raw", "d": pray_request_package[38:40]},
+            "pld_len_02": {"t": "int", "d": pray_request_package[44:48]},
+            "user_id_02": {"t": "int", "d": pray_request_package[48:52]},
+            "mystery_06": {
+                "t": "int",
+                "d": pray_request_package[52:56],
+            },  # SOme Length :shrug:
+            "mystery_07": {"t": "raw", "d": pray_request_package[56:60]},
+            "mystery_08": {"t": "raw", "d": pray_request_package[60:64]},
+            "mystery_09": {"t": "raw", "d": pray_request_package[64:68]},
+            "pray": {"t": "raw", "d": pray_request_package[68:]},
+            "pray_filename": {
+                "t": "str",
+                "d": pray_request_package[68: 68 + 128]
+                    .decode("latin-1")
+                    .rstrip("\0")
+                    .encode("latin-1"),
+            },
+        }
+    for key, value in what.items():
+        if value["t"] == "int":
+            print(
+                f"i {key}: {int.from_bytes(value['d'], byteorder='little')} - {value['d'].hex()}"
+            )
+        elif value["t"] == "raw":
+            if len(value["d"]) > 9:
+                print(f"r {key}: {value['d'][:8].hex()}... {len(value['d'])}")
+            else:
+                print(f"r {key}: {value['d'].hex()} {len(value['d'])}")
+        elif value["t"] == "str":
+            print(f"s {key}: '{value['d'].decode('latin-1')}' - {value['d'].hex()}")
+        else:
+            print(f"e {key}: {value['d']}")
+    with open(
+        f"./poke_pray/{what['pray_filename']['d'].decode('latin-1')}.pray", "wb"
+    ) as f:
+        f.write(what["pray"]["d"])
+    pray = Pray()
+    pray = Pray(what["pray"]["d"])
+    print(f"Praying:")
+    for block in pray.blocks:
+        print(f"Block Type: {block.type}\nBlock Name: {block.name}")
+        if block.type in ["ICHT", "IMSG", "MESG", "CHAT", "OMSG", "OCHT", "MOEP"]:
+            # write tag_block to Disk for analysis.
+            tag_block = TagBlock(block.block_data)
+            for variable in tag_block.named_variables:
+                if type(variable[1]) == int:
+                    print('\tINT Key: "%s" Value: %s' % variable)
+                elif type(variable[1]) == str:
+                    print('\tSTR Key: "%s" Value: "%s"' % variable)
+            print(f"compressed: {tag_block.compressed}")
+            print(f"block_data_length: {len(tag_block.block_data)}")
 
 def net_line_reply_package(line_request_package):
     package_count = int.from_bytes(line_request_package[20:24], byteorder="little")
@@ -140,9 +252,12 @@ def net_line_reply_package(line_request_package):
     print(f"{user_id}+{user_hid}")
     if user_id is None:
         print(f"{username} LOGIN, failed")
-        return bytes.fromhex(
-            f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000"
-        ), user_id
+        return (
+            bytes.fromhex(
+                f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            user_id,
+        )
     print(f"{username} has joined!")
     return (
         bytes.fromhex(
@@ -182,7 +297,7 @@ def net_ulin_reply_package(ulin_request_package):
 
 
 def net_stat_reply_package(stat_request_package):
-    """This whole thing is a mock, all the date, asside from the user_id, and Online player count, returned by this is nonsense ;)"""
+    """This whole thing is a mock, all the date, asside from the Online player count, returned by this is nonsense ;)"""
     package_count = int.from_bytes(stat_request_package[20:24], byteorder="little")
     bytes_received = (12345).to_bytes(4, byteorder="little").hex()
     bytes_sent = (54321).to_bytes(4, byteorder="little").hex()
@@ -296,6 +411,10 @@ if __name__ == "__main__":
                 server.shutdown()
                 server.server_close()
                 break
+            elif comand.startswith("pray"):
+                comand, data = comand.split(" ")
+                poke_pray(bytes.fromhex(data),sent_by_server=True)
+
     except KeyboardInterrupt as exception:
         tmp = []
         for foo in requests:
