@@ -38,87 +38,6 @@ def make_bytes_beautifull(payload, color_code="\033[96m"):
     print("\033[00m")
 
 
-class package_data(bytes):
-    @property
-    def package_count(self):
-        return self.get_int(20)
-
-    def get_int(self, position, length=4):
-        return int.from_bytes(self[position : position + length], byteorder="little")
-
-    def get_string(self, position, length):
-        return self[position : position + length].decode("latin-1")
-
-    @staticmethod
-    def int_to_bytes(integer, length=4):
-        return integer.to_bytes(length, byteorder="little")
-
-    @staticmethod
-    def str_to_bytes(string):
-        return string.encode("latin-1")
-
-    @staticmethod
-    def zeros(length=4):
-        return int(0).to_bytes(length, byteorder="little")
-
-
-class package_line(package_data):
-    @property
-    def username(self):
-        return self.get_string(52, self.get_int(44) - 1)
-
-    @property
-    def password(self):
-        return self.get_string(52 + self.get_int(44), self.get_int(48) - 1)
-
-    @property
-    def user_id(self):
-        if (
-            self.username in player_database
-            and player_database[self.username]["password"] == self.password
-        ):
-            return player_database[self.username]["id"]
-        return None
-
-
-class line_response(package_data):
-    def __init__(self, pl, server_ehlo=server_ehlo, echo_load=echo_load):
-        if pl.user_id is None:
-            self.data = (
-                self.int_to_bytes(10)
-                + self.zeros(16)
-                + self.int_to_bytes(pl.package_count)  # Package Count
-                + self.zeros(36)
-            )
-        else:
-            self.data = (
-                # header
-                self.int_to_bytes(10)  # package type (0a000000)
-                + bytes.fromhex(echo_load)  # ECHO
-                + self.int_to_bytes(pl.user_id)  # User ID
-                + bytes.fromhex("01000a00")  # Unknown Data
-                + self.int_to_bytes(pl.package_count)  # Package Count
-                + self.zeros(8)
-                # end Header / start payload
-                + self.zeros()
-                + self.int_to_bytes(1)
-                + self.zeros()
-                + self.int_to_bytes(
-                    len(server_ehlo["host"]) + len(server_ehlo["name"]) + 22
-                )  # payload Length maybe?
-                + self.int_to_bytes(1)
-                + self.int_to_bytes(1)
-                + self.int_to_bytes(1)
-                + self.int_to_bytes(server_ehlo["port"])
-                + self.int_to_bytes(1)
-                + self.str_to_bytes(server_ehlo["host"])
-                + self.zeros(1)
-                + self.str_to_bytes(server_ehlo["name"])
-                + self.zeros(1)
-            )
-        self.user_id = pl.user_id
-
-
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     """
     The RequestHandler class for our server.
@@ -152,17 +71,17 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if not data:
                 print(f"{self.user_id} BREAK, NODATA")
                 break
-            if data[0:4].hex() not in [
+            if data[0:4].hex() in [
                 "13000000",
                 "18000000",
                 "21020000",
                 "0f000000",
                 "10000000",
             ]:
+                make_bytes_beautifull(data, color_code="\033[92m")
+            else:
                 make_bytes_beautifull(data, color_code="\033[91m")
                 print(data.hex())
-            else:
-                make_bytes_beautifull(data, color_code="\033[92m")
             if data[0:4] == bytes.fromhex("13000000"):  # NET: ULIN
                 reply = net_ulin_reply_package(data)
                 make_bytes_beautifull(reply)
@@ -185,9 +104,19 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 reply = user_status_package(user_id=user_id, user_hid=user_hid)
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
-
+            elif data[0:4] == bytes.fromhex("09000000"):  # PRAY Data :shrug:
+                print(data.hex())
+                poke_pray(data)
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
+
+def poke_pray(pray_request_package):
+    user_uid = int.from_bytes(pray_request_package[12:15], byteorder="little")
+    user_hid = int.from_bytes(pray_request_package[16:17], byteorder="little")
+    print(f" User UID:{user_uid} - {pray_request_package[12:16].hex()}")
+    print(f" User HID:{user_hid} - {pray_request_package[16:18].hex()}")
+    package_count = int.from_bytes(pray_request_package[20:24], byteorder="little")
+    print(f"{package_count} - {pray_request_package[20:24].hex()}")
 
 
 def net_line_reply_package(line_request_package):
@@ -213,7 +142,7 @@ def net_line_reply_package(line_request_package):
         print(f"{username} LOGIN, failed")
         return bytes.fromhex(
             f"0a00000000000000000000000000000000000000{package_count.to_bytes(4,byteorder='little').hex()}000000000000000000000000000000000000000000000000000000000000000000000000"
-        )
+        ), user_id
     print(f"{username} has joined!")
     return (
         bytes.fromhex(
@@ -239,7 +168,7 @@ def net_line_reply_package(line_request_package):
 
 
 def net_ulin_reply_package(ulin_request_package):
-    requested_user_id = int.from_bytes(ulin_request_package[12:15], byteorder="little")
+    requested_user_id = int.from_bytes(ulin_request_package[12:16], byteorder="little")
     package_count = int.from_bytes(ulin_request_package[20:24], byteorder="little")
     package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
     if requested_user_id in requests:
