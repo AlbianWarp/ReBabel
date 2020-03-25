@@ -84,6 +84,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 "10000000",
             ]:
                 make_bytes_beautifull(data, color_code="\033[92m")
+            elif data[0:4].hex() in ['09000000']:
+                print("PRAY Data incoming")
             else:
                 make_bytes_beautifull(data, color_code="\033[91m")
                 print(data.hex())
@@ -110,12 +112,29 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 make_bytes_beautifull(bytes.fromhex(reply))
                 self.request.sendall(bytes.fromhex(reply))
             elif data[0:4] == bytes.fromhex("09000000"):  # PRAY Data :shrug:
-                poke_pray(data)
+                raw_pray = data[76:]
+                moep = True
+                while moep:
+                    try:
+                        tmp = Pray(raw_pray) # This should instead check for the Payload length probably!
+                        moep = False
+                        print("moep_false")
+                        print(len(raw_pray))
+                    except Exception as e:
+                        raw_pray = raw_pray + self.request.recv(1024)
+                data = data[:76] + raw_pray
+                what, _ = poke_pray(data, sent_by_server=False)
+                user_id = data[32:36]
+                print(f" recpt user_id: {int.from_bytes(user_id, byteorder='little')}")
+                pld_len = 36 + len(raw_pray)
+                reply = bytes.fromhex(f"090000000000000000000000000000000000000000000000{pld_len.to_bytes(4,byteorder='little').hex()}00000000{pld_len.to_bytes(4,byteorder='little').hex()}0100cccc{self.user_id.to_bytes(4,byteorder='little').hex()}{(pld_len - 24).to_bytes(4, byteorder='little').hex()}00000000010000000c0000000000000000000000{raw_pray.hex()}")
+                poke_pray(reply,sent_by_server=True)
+                requests[int.from_bytes(user_id, byteorder='little')].request.sendall(reply)
         del requests[self.user_id]
         print(f" removed {self.user_id} from requests")
 
 
-def poke_pray(pray_request_package,sent_by_server=False):
+def poke_pray(pray_request_package, sent_by_server=False):
     what = {
         "tcp_pld_len": {"t": "print", "d": len(pray_request_package)},
         "pld_len_no_header": {"t": "print", "d": len(pray_request_package[32:])},
@@ -137,9 +156,10 @@ def poke_pray(pray_request_package,sent_by_server=False):
         "sender_uid": {"t": "int", "d": pray_request_package[32:36]},
         "sender_hid": {"t": "int", "d": pray_request_package[36:38]},
         "mystery_04": {"t": "raw", "d": pray_request_package[38:40]},
-        "pld_len_02": {"t": "int", "d": pray_request_package[44:48]},
+        "pld_len_02": {"t": "int", "d": pray_request_package[40:44]},
+        "mystery_12": {"t": "int", "d": pray_request_package[44:48]},
         "user_id_02": {"t": "int", "d": pray_request_package[48:52]},
-        "mystery_06": {
+        "pld_len_minus_24_?": {
             "t": "int",
             "d": pray_request_package[52:56],
         },  # SOme Length :shrug:
@@ -176,11 +196,11 @@ def poke_pray(pray_request_package,sent_by_server=False):
                 "d": pray_request_package[28:32],
             },  # The Payload len might occupy 8 Bytes ?
             # HEADER END
-            "sender_uid": {"t": "int", "d": pray_request_package[32:36]},
-            "sender_hid": {"t": "int", "d": pray_request_package[36:38]},
-            "mystery_04": {"t": "raw", "d": pray_request_package[38:40]},
-            "pld_len_02": {"t": "int", "d": pray_request_package[44:48]},
-            "user_id_02": {"t": "int", "d": pray_request_package[48:52]},
+            "pld_len": {"t": "int", "d": pray_request_package[32:36]},
+            "mystery_04": {"t": "raw", "d": pray_request_package[36:40]},
+            "mystery_12": {"t": "int", "d": pray_request_package[40:44]},
+            "pld_len_minus_24_?": {"t": "int", "d": pray_request_package[44:48]},
+            "mystery_10": {"t": "int", "d": pray_request_package[48:52]},
             "mystery_06": {
                 "t": "int",
                 "d": pray_request_package[52:56],
@@ -215,21 +235,25 @@ def poke_pray(pray_request_package,sent_by_server=False):
         f"./poke_pray/{what['pray_filename']['d'].decode('latin-1')}.pray", "wb"
     ) as f:
         f.write(what["pray"]["d"])
-    pray = Pray()
-    pray = Pray(what["pray"]["d"])
-    print(f"Praying:")
-    for block in pray.blocks:
-        print(f"Block Type: {block.type}\nBlock Name: {block.name}")
-        if block.type in ["ICHT", "IMSG", "MESG", "CHAT", "OMSG", "OCHT", "MOEP"]:
-            # write tag_block to Disk for analysis.
-            tag_block = TagBlock(block.block_data)
-            for variable in tag_block.named_variables:
-                if type(variable[1]) == int:
-                    print('\tINT Key: "%s" Value: %s' % variable)
-                elif type(variable[1]) == str:
-                    print('\tSTR Key: "%s" Value: "%s"' % variable)
-            print(f"compressed: {tag_block.compressed}")
-            print(f"block_data_length: {len(tag_block.block_data)}")
+    pray = None
+    try:
+        print(f"Praying:")
+        pray = Pray(what["pray"]["d"])
+        for block in pray.blocks:
+            print(f"Block Type: {block.type}\nBlock Name: {block.name}")
+            if block.type in ["ICHT", "IMSG", "MESG", "CHAT", "OMSG", "OCHT", "MOEP"]:
+                # write tag_block to Disk for analysis.
+                tag_block = TagBlock(block.block_data)
+                for variable in tag_block.named_variables:
+                    if type(variable[1]) == int:
+                        print('\tINT Key: "%s" Value: %s' % variable)
+                    elif type(variable[1]) == str:
+                        print('\tSTR Key: "%s" Value: "%s"' % variable)
+                print(f"compressed: {tag_block.compressed}")
+                print(f"block_data_length: {len(tag_block.block_data)}")
+    except Exception as e:
+        print(e)
+    return what, pray
 
 def net_line_reply_package(line_request_package):
     package_count = int.from_bytes(line_request_package[20:24], byteorder="little")
@@ -349,7 +373,11 @@ def user_status_package(user_id, user_hid=1):
             break
 
     if not username:
-        return None
+        username = "ERROR"
+        payld_len = 34 + len(username)
+        print(f"ERROR - user_status_package: A User that is not in the database was requested!")
+        return f"0e0000000000000000000000{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2, byteorder='little').hex()}0a0000000000{payld_len.to_bytes(4, byteorder='little').hex()}00000000{payld_len.to_bytes(4, byteorder='little').hex()}{user_id.to_bytes(4, byteorder='little').hex()}{user_hid.to_bytes(2, byteorder='little').hex()}cccc0500000005000000{len(username).to_bytes(4, byteorder='little').hex()}48617070794d65696c69{username.encode('latin-1').hex()}"
+
     print(
         f"{username} {username.encode('latin-1').hex()} {len(username).to_bytes(4, byteorder='little').hex()} {user_id}+{user_hid}"
     )
@@ -411,7 +439,7 @@ if __name__ == "__main__":
                 server.shutdown()
                 server.server_close()
                 break
-            elif comand.startswith("pray"):
+            elif comand.startswith("pray "):
                 comand, data = comand.split(" ")
                 poke_pray(bytes.fromhex(data),sent_by_server=True)
 
