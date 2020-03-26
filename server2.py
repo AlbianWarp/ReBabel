@@ -116,19 +116,14 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 raw_pray = data[76:]
                 pld_len = int.from_bytes(data[24:28], byteorder="little")
                 moep = True
+                if pld_len == len(data[32:]) - 8:
+                    print("Small PRAY, All good :D")
+                    moep = False
                 while moep:
-                    try:
-                        data = self.request.recv(102400)
-                    except ConnectionResetError as exception:
-                        print(f"{self.user_id} PRAY BREAK, {exception}")
-                        break
-                    if not data:
-                        print(f"{self.user_id} PRAY BREAK, NODATA")
-                        break
                     raw_pray = raw_pray + self.request.recv(1024)
                     print(".", end="")
                     data = data[:76] + raw_pray
-                    if pld_len <= len(data[32:]) - 8:
+                    if pld_len == len(data[32:]) - 8:
                         moep = False
                 print("")
                 what, _ = poke_pray(data, sent_by_server=False)
