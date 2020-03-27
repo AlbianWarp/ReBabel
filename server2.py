@@ -83,7 +83,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             ]:
                 make_bytes_beautifull(data, color_code="\033[92m")
             elif data[0:4].hex() in ["09000000"]:
-                print("PRAY Data incoming")
+                pass
             else:
                 make_bytes_beautifull(data, color_code="\033[91m")
                 print(data.hex())
@@ -113,14 +113,20 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 make_bytes_beautifull(data[0:24] + bytes.fromhex("0000000000000000"))
                 self.request.sendall(data[0:24] + bytes.fromhex("0000000000000000"))
             elif data[0:4] == bytes.fromhex("09000000"):  # PRAY Data :shrug:
+                print("PRAY INCOMMING...")
                 raw_pray = data[76:]
                 pld_len = int.from_bytes(data[24:28], byteorder="little")
+                print(pld_len)
                 moep = True
                 if pld_len == len(data[32:]) - 8:
                     print("Small PRAY, All good :D")
                     moep = False
                 while moep:
-                    raw_pray = raw_pray + self.request.recv(1024)
+                    tmp = self.request.recv(1024)
+                    if not tmp:
+                        print("PRAY CONN BROKE!!!!")
+                        moep = False
+                    raw_pray = raw_pray + tmp
                     print(".", end="")
                     data = data[:76] + raw_pray
                     if pld_len == len(data[32:]) - 8:
@@ -351,7 +357,7 @@ def net_ruso_reply_package(ruso_request_package):
     package_count_hex = package_count.to_bytes(4, byteorder="little").hex()
     random_user_id = random.choice(list(requests))
     random_user_hid = 1
-    return f"21020000{echo_load}{random_user_id.to_bytes(4, byteorder='little').hex()}\{random_user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count_hex}0000000001000000"
+    return f"21020000{echo_load}{random_user_id.to_bytes(4, byteorder='little').hex()}{random_user_hid.to_bytes(2,byteorder='little').hex()}0a00{package_count_hex}0000000001000000"
 
 
 def net_unik_reply_package(unik_request_package):
