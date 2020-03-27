@@ -79,7 +79,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 "18000000",
                 "21020000",
                 "0f000000",
-                "10000000"
+                "10000000",
             ]:
                 make_bytes_beautifull(data, color_code="\033[92m")
             elif data[0:4].hex() in ["09000000"]:
